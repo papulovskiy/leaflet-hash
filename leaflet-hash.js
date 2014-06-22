@@ -5,11 +5,11 @@
 			(doc_mode === undefined || doc_mode > 7);
 	})();
 
-	L.Hash = function(map) {
+	L.Hash = function(map, options) {
 		this.onHashChange = L.Util.bind(this.onHashChange, this);
 
 		if (map) {
-			this.init(map);
+			this.init(map, options);
 		}
 	};
 
@@ -18,21 +18,15 @@
 			hash = hash.substr(1);
 		}
 		var args = hash.split("/");
-		if (args.length == 3) {
-			var zoom = parseInt(args[0], 10),
-			lat = parseFloat(args[1]),
-			lon = parseFloat(args[2]);
-			if (isNaN(zoom) || isNaN(lat) || isNaN(lon)) {
-				return false;
-			} else {
-				return {
-					center: new L.LatLng(lat, lon),
-					zoom: zoom
-				};
+		var result = {};
+		for (var argi in args) {
+			var arg = args[argi];
+			var parts = arg.split("=");
+			if(parts.length == 2) {
+				result[parts[0]] = parts[1];
 			}
-		} else {
-			return false;
 		}
+		return result;
 	};
 
 	L.Hash.formatHash = function(map) {
@@ -40,21 +34,61 @@
 		    zoom = map.getZoom(),
 		    precision = Math.max(0, Math.ceil(Math.log(zoom) / Math.LN2));
 
-		return "#" + [zoom,
-			center.lat.toFixed(precision),
-			center.lng.toFixed(precision)
-		].join("/");
+		var entities = [];
+		for (var key in this.options) {
+			entities.push(key + '=' + this.options[key].get(map));
+		}
+
+		return "#" + entities.join("/");
 	},
 
 	L.Hash.prototype = {
 		map: null,
 		lastHash: null,
 
+		options: {
+			zoom: {
+				get: function(map) { return map.getZoom(); },
+				set: function(map, z) { return map.setZoom(parseInt(z)); }
+			},
+			lat: {
+				get: function(map) {
+					var center = map.getCenter(),
+						zoom = map.getZoom(),
+		    			precision = Math.max(0, Math.ceil(Math.log(zoom) / Math.LN2));
+					return center.lat.toFixed(precision);
+				},
+				set: function(map, lat) {
+					var center = map.getCenter(),
+						zoom = map.getZoom();
+					map.setView(new L.LatLng(parseFloat(lat), center.lng), zoom);
+				}
+			},
+			lon: {
+				get: function(map) {
+					var center = map.getCenter(),
+						zoom = map.getZoom(),
+		    			precision = Math.max(0, Math.ceil(Math.log(zoom) / Math.LN2));
+					return center.lng.toFixed(precision);
+				},
+				set: function(map, lon) {
+					var center = map.getCenter(),
+						zoom = map.getZoom();
+					map.setView(new L.LatLng(center.lat, parseFloat(lon)), zoom);
+				}
+			}
+		},
+
 		parseHash: L.Hash.parseHash,
 		formatHash: L.Hash.formatHash,
 
-		init: function(map) {
+		init: function(map, options) {
 			this.map = map;
+
+			for (var key in options) {
+				this.options[key] = options[key];
+			}
+			console.log(this.options, options);
 
 			// reset the hash
 			this.lastHash = null;
@@ -102,7 +136,14 @@
 			if (parsed) {
 				this.movingMap = true;
 
-				this.map.setView(parsed.center, parsed.zoom);
+				console.log(this.options);
+				for (var key in parsed) {
+					if(this.options[key]) {
+						console.log(key, parsed[key]);
+						this.options[key].set(this.map, parsed[key]);
+					}
+				}
+				// this.map.setView(parsed.center, parsed.zoom);
 
 				this.movingMap = false;
 			} else {
@@ -129,6 +170,8 @@
 		hashChangeInterval: null,
 		startListening: function() {
 			this.map.on("moveend", this.onMapMove, this);
+			this.map.on("layeradd", this.onMapMove, this);
+			this.map.on("layerremove", this.onMapMove, this);
 
 			if (HAS_HASHCHANGE) {
 				L.DomEvent.addListener(window, "hashchange", this.onHashChange);
@@ -150,8 +193,8 @@
 			this.isListening = false;
 		}
 	};
-	L.hash = function(map) {
-		return new L.Hash(map);
+	L.hash = function(map, options) {
+		return new L.Hash(map, options);
 	};
 	L.Map.prototype.addHash = function() {
 		this._hash = L.hash(this);
